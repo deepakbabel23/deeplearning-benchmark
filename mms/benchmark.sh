@@ -115,17 +115,19 @@ else
     curl https://s3.amazonaws.com/model-server/inputs/kitten.jpg -s -S -o /tmp/benchmark/input
 fi
 
-# start mms docker
+# start ts docker
 set +e
-docker rm -f mms
+docker rm -f ts
 set -e
-docker run ${DOCKER_RUNTIME} --name mms -p 8080:8080 -p 8081:8081 \
+docker run ${DOCKER_RUNTIME} --name ts -p 8080:8080 -p 8081:8081 \
     -v /tmp/benchmark/conf:/opt/ml/conf \
     -v /tmp/benchmark/logs:/home/model-server/logs \
-    -u root -itd ${IMAGE} multi-model-server --start \
-    --mms-config /opt/ml/conf/config.properties
+    -u root -itd ${IMAGE} torchserve --start \
+    --ts-config /opt/ml/conf/config.properties
 
-MMS_VERSION=`docker exec -it mms pip freeze | grep multi-model-server`
+echo "Docker initiated"
+
+MMS_VERSION=`docker exec -it ts pip freeze | grep torchserve`
 
 until curl -s "http://localhost:8080/ping" > /dev/null
 do
@@ -133,13 +135,19 @@ do
   sleep 3
 done
 
+echo "Docker started successfully"
+
 sleep 10
 
 result_file="/tmp/benchmark/result.txt"
 metric_log="/tmp/benchmark/logs/model_metrics.log"
 
+echo "Executing ab"
+
 ab -c ${CONCURRENCY} -n ${REQUESTS} -k -p /tmp/benchmark/input -T "${CONTENT_TYPE}" \
     http://127.0.0.1:8080/predictions/benchmark > ${result_file}
+
+echo "ab Execution completed"
 
 line50=$((${REQUESTS} / 2))
 line90=$((${REQUESTS} * 9 / 10))
@@ -149,6 +157,8 @@ grep "PredictionTime" ${metric_log} | cut -c55- | cut -d"|" -f1 | sort -g > /tmp
 grep "PreprocessTime" ${metric_log} | cut -c55- | cut -d"|" -f1 | sort -g > /tmp/benchmark/preprocess.txt
 grep "InferenceTime" ${metric_log} | cut -c54- | cut -d"|" -f1 | sort -g > /tmp/benchmark/inference.txt
 grep "PostprocessTime" ${metric_log} | cut -c56- | cut -d"|" -f1 | sort -g > /tmp/benchmark/postprocess.txt
+
+echo "Grabing performance numbers"
 
 MODEL_P50=`sed -n "${line50}p" /tmp/benchmark/predict.txt`
 MODEL_P90=`sed -n "${line90}p" /tmp/benchmark/predict.txt`
