@@ -127,7 +127,7 @@ docker run ${DOCKER_RUNTIME} --name ts -p 8080:8080 -p 8081:8081 \
 
 echo "Docker initiated"
 
-MMS_VERSION=`docker exec -it ts pip freeze | grep torchserve`
+TS_VERSION=`docker exec -it ts pip freeze | grep torchserve`
 
 until curl -s "http://localhost:8080/ping" > /dev/null
 do
@@ -164,13 +164,13 @@ MODEL_P50=`sed -n "${line50}p" /tmp/benchmark/predict.txt`
 MODEL_P90=`sed -n "${line90}p" /tmp/benchmark/predict.txt`
 MODEL_P99=`sed -n "${line99}p" /tmp/benchmark/predict.txt`
 
-MMS_ERROR=`grep "Failed requests:" ${result_file} | awk '{ print $NF }'`
-MMS_TPS=`grep "Requests per second:" ${result_file} | awk '{ print $4 }'`
-MMS_P50=`grep " 50\% " ${result_file} | awk '{ print $NF }'`
-MMS_P90=`grep " 90\% " ${result_file} | awk '{ print $NF }'`
-MMS_P99=`grep " 99\% " ${result_file} | awk '{ print $NF }'`
-MMS_MEAN=`grep -E "Time per request:.*mean\)" ${result_file} | awk '{ print $4 }'`
-MMS_ERROR_RATE=`echo "scale=2;100 * ${MMS_ERROR}/${REQUESTS}" | bc | awk '{printf "%f", $0}'`
+TS_ERROR=`grep "Failed requests:" ${result_file} | awk '{ print $NF }'`
+TS_TPS=`grep "Requests per second:" ${result_file} | awk '{ print $4 }'`
+TS_P50=`grep " 50\% " ${result_file} | awk '{ print $NF }'`
+TS_P90=`grep " 90\% " ${result_file} | awk '{ print $NF }'`
+TS_P99=`grep " 99\% " ${result_file} | awk '{ print $NF }'`
+TS_MEAN=`grep -E "Time per request:.*mean\)" ${result_file} | awk '{ print $4 }'`
+TS_ERROR_RATE=`echo "scale=2;100 * ${TS_ERROR}/${REQUESTS}" | bc | awk '{printf "%f", $0}'`
 
 echo "" > /tmp/benchmark/report.txt
 echo "======================================" >> /tmp/benchmark/report.txt
@@ -182,7 +182,7 @@ echo "" >> /tmp/benchmark/report.txt
 echo "" >> /tmp/benchmark/report.txt
 
 echo "======================================" >> /tmp/benchmark/report.txt
-echo "MMS version: ${MMS_VERSION}" >> /tmp/benchmark/report.txt
+echo "TS version: ${TS_VERSION}" >> /tmp/benchmark/report.txt
 echo "CPU/GPU: ${HW_TYPE}" >> /tmp/benchmark/report.txt
 echo "Model: ${MODEL}" >> /tmp/benchmark/report.txt
 echo "Concurrency: ${CONCURRENCY}" >> /tmp/benchmark/report.txt
@@ -191,20 +191,20 @@ echo "Requests: ${REQUESTS}" >> /tmp/benchmark/report.txt
 echo "Model latency P50: ${MODEL_P50}" >> /tmp/benchmark/report.txt
 echo "Model latency P90: ${MODEL_P90}" >> /tmp/benchmark/report.txt
 echo "Model latency P99: ${MODEL_P99}" >> /tmp/benchmark/report.txt
-echo "MMS throughput: ${MMS_TPS}" >> /tmp/benchmark/report.txt
-echo "MMS latency P50: ${MMS_P50}" >> /tmp/benchmark/report.txt
-echo "MMS latency P90: ${MMS_P90}" >> /tmp/benchmark/report.txt
-echo "MMS latency P99: ${MMS_P99}" >> /tmp/benchmark/report.txt
-echo "MMS latency mean: ${MMS_MEAN}" >> /tmp/benchmark/report.txt
-echo "MMS error rate: ${MMS_ERROR_RATE}%" >> /tmp/benchmark/report.txt
+echo "TS throughput: ${TS_TPS}" >> /tmp/benchmark/report.txt
+echo "TS latency P50: ${TS_P50}" >> /tmp/benchmark/report.txt
+echo "TS latency P90: ${TS_P90}" >> /tmp/benchmark/report.txt
+echo "TS latency P99: ${TS_P99}" >> /tmp/benchmark/report.txt
+echo "TS latency mean: ${TS_MEAN}" >> /tmp/benchmark/report.txt
+echo "TS error rate: ${TS_ERROR_RATE}%" >> /tmp/benchmark/report.txt
 
 cat /tmp/benchmark/report.txt
 
 if [[ ! -z "${UPLOAD}" ]]; then
     TODAY=`date +"%y-%m-%d_%H"`
-    echo "Saving on S3 bucket on s3://benchmarkai-metrics-prod/daily/mms/${HW_TYPE}/${TODAY}/${MODEL}"
+    echo "Saving on S3 bucket on s3://benchmarkai-metrics-prod/daily/ts/${HW_TYPE}/${TODAY}/${MODEL}"
 
-    aws s3 cp /tmp/benchmark/ s3://benchmarkai-metrics-prod/daily/mms/${HW_TYPE}/${TODAY}/${MODEL} --recursive
+    aws s3 cp /tmp/benchmark/ s3://benchmarkai-metrics-prod/daily/ts/${HW_TYPE}/${TODAY}/${MODEL} --recursive
 
     echo "Files uploaded"
 fi
