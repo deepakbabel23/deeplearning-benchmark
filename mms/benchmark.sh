@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+#set -ex
 set -e
 
 POSITIONAL=()
@@ -42,9 +43,14 @@ do
         UPLOAD="$2"
         shift
         ;;
-        -ub|--benchmark_url)
-        BENCHMARK_URL="$2"
+        -o|--op)
+        OP="$2"
+	shift
         ;;
+        -b|--cnt)
+	BCOUNT="$2"
+	shift
+	;;
         --default)
         DEFAULT=YES
         shift
@@ -58,15 +64,19 @@ done
 set -- "${POSITIONAL[@]}" # restore positional parameters
 
 
-if [[ -z "${URL}" ]] && [[ -z "${BENCHMARK_URL}" ]]; then
+if [[ -z "${OP}" ]] && [[ -z "${URL}" ]]; then
     echo "URL is required, for example:"
     echo "benchmark.sh -u https://s3.amazonaws.com/model-server/model_archive_1.0/onnx-resnet50v1.mar"
     echo "benchmark.sh -i lstm.json -u https://s3.amazonaws.com/model-server/model_archive_1.0/lstm_ptb.mar"
     echo "benchmark.sh -c 500 -n 50000 -i noop.json -u https://s3.amazonaws.com/model-server/model_archive_1.0/noop-v1.0.mar"
     echo "benchmark.sh -d local-image -u https://s3.amazonaws.com/model-server/model_archive_1.0/noop-v1.0.mar"
     exit 1
-else
+fi
+echo "Preparing for benchmark..."
+
+if [[ -z "${OP}" ]]; then
     echo "URL is mandatory and it should be any management api url."
+    exit 1
 fi
 
 if [[ -x "$(command -v nvidia-docker)" ]]; then
@@ -102,6 +112,7 @@ BASEDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FILENAME="${URL##*/}"
 MODEL="${FILENAME%.*}"
 
+echo "Preparing config..."
 rm -rf /tmp/benchmark
 mkdir -p /tmp/benchmark/conf
 mkdir -p /tmp/benchmark/logs
@@ -111,7 +122,7 @@ if [[ ! -z "${WORKER}" ]]; then
     echo "default_workers_per_model=${WORKER}" >> /tmp/benchmark/conf/config.properties
 fi
 
-if [[ -z "${BENCHMARK_URL}" ]]; then
+if [[ -z "${OP}" ]]; then
     echo "load_models=benchmark=${URL}" >> /tmp/benchmark/conf/config.properties
     if [[ ! -z "${INPUT}" ]] && [[ -f "${BASEDIR}/${INPUT}" ]]; then
         CONTENT_TYPE="application/json"
@@ -122,6 +133,8 @@ if [[ -z "${BENCHMARK_URL}" ]]; then
     fi
 fi
 
+echo "starting docker..."
+
 # start ts docker
 set +e
 docker rm -f ts
@@ -129,7 +142,8 @@ set -e
 docker run ${DOCKER_RUNTIME} --name ts -p 8080:8080 -p 8081:8081 \
     -v /tmp/benchmark/conf:/opt/ml/conf \
     -v /tmp/benchmark/logs:/home/model-server/logs \
-    -u root -itd ${IMAGE} torchserve --start \
+    -v /home/ubuntu/model_store/:/home/model-server/model-store \
+    -u root -itd ${IMAGE} torchserve --start --models densenet161=densenet161.mar \
     --ts-config /opt/ml/conf/config.properties
 
 echo "Docker initiated"
@@ -151,11 +165,39 @@ metric_log="/tmp/benchmark/logs/model_metrics.log"
 
 echo "Executing ab"
 
-if [[ -z "${BENCHMARK_URL}" ]]; then
+if [[ -z "${OP}" ]]; then
+    echo 'test'
     ab -c ${CONCURRENCY} -n ${REQUESTS} -k -p /tmp/benchmark/input -T "${CONTENT_TYPE}" \
         http://127.0.0.1:8080/predictions/benchmark > ${result_file}
 else
-    ab -c ${CONCURRENCY} -n ${REQUESTS} -k ${BENCHMARK_URL} > ${result_file}
+    echo "Executing operation ${OP}"
+
+    model_base="resnet-18"
+    mar_base="resnet-18"
+    for (( cnt=1; cnt<=${BCOUNT}; cnt++ ))
+    do
+	MODEL="${model_base}_${cnt}"
+        MAR="${mar_base}_${cnt}"
+        
+        if test "${OP}" = "R"; then	
+	        echo 'Inside'
+		RURL="?model_name=${MODEL}&url=${MAR}.mar&batch_size=4&max_batch_delay=5000&initial_workers=3&synchronous=true"
+    		ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m POST "http://localhost:8081/models${RURL}" > ${result_file}
+	fi
+	
+	if test "${OP}" = "D"; then
+		ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m DELETE "http://localhost:8081/models/${MODEL}" > ${result_file}
+	fi
+
+	if test "${OP}" = "SF"; then
+        	ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m PUT "http://localhost:8081/models/${MODEL}/${cnt}_0/set-default" > ${result_file}
+        fi
+
+	if test "${OP}" = "U"; then
+        	ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m PUT "http://localhost:8081/models/${MODEL}?min_worker=3&synchronous=true" > ${result_file}
+        fi
+
+    done
 fi
 
 echo "ab Execution completed"
@@ -166,7 +208,7 @@ line50=$((${REQUESTS} / 2))
 line90=$((${REQUESTS} * 9 / 10))
 line99=$((${REQUESTS} * 99 / 100))
 
-if [[ -z "${BENCHMARK_URL}" ]]; then
+if [[ -z "${OP}" ]]; then
     grep "PredictionTime" ${metric_log} | cut -c55- | cut -d"|" -f1 | sort -g > /tmp/benchmark/predict.txt
     grep "PreprocessTime" ${metric_log} | cut -c55- | cut -d"|" -f1 | sort -g > /tmp/benchmark/preprocess.txt
     grep "InferenceTime" ${metric_log} | cut -c54- | cut -d"|" -f1 | sort -g > /tmp/benchmark/inference.txt
@@ -188,13 +230,13 @@ TS_ERROR_RATE=`echo "scale=2;100 * ${TS_ERROR}/${REQUESTS}" | bc | awk '{printf 
 echo "" > /tmp/benchmark/report.txt
 echo "======================================" >> /tmp/benchmark/report.txt
 
-if [[ -z "${BENCHMARK_URL}" ]]; then
+if [[ -z "${OP}" ]]; then
     curl -s http://localhost:8081/models/benchmark >> /tmp/benchmark/report.txt
     echo "Inference result:" >> /tmp/benchmark/report.txt
     curl -s -X POST http://127.0.0.1:8080/predictions/benchmark -H "Content-Type: ${CONTENT_TYPE}" \
         -T /tmp/benchmark/input >> /tmp/benchmark/report.txt
 else
-    echo "Benchmark results - Management API"
+    echo "Benchmark results - Management API - ${OP}"
 fi
 
 echo "" >> /tmp/benchmark/report.txt
@@ -207,7 +249,7 @@ echo "Model: ${MODEL}" >> /tmp/benchmark/report.txt
 echo "Concurrency: ${CONCURRENCY}" >> /tmp/benchmark/report.txt
 echo "Requests: ${REQUESTS}" >> /tmp/benchmark/report.txt
 
-if [[ -z "${BENCHMARK_URL}" ]]; then
+if [[ -z "${OP}" ]]; then
     echo "Model latency P50: ${MODEL_P50}" >> /tmp/benchmark/report.txt
     echo "Model latency P90: ${MODEL_P90}" >> /tmp/benchmark/report.txt
     echo "Model latency P99: ${MODEL_P99}" >> /tmp/benchmark/report.txt
@@ -229,3 +271,5 @@ if [[ ! -z "${UPLOAD}" ]]; then
 
     echo "Files uploaded"
 fi
+
+#set +x
