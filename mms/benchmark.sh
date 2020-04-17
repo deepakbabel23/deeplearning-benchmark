@@ -77,8 +77,6 @@ do
 done
 set -- "${POSITIONAL[@]}" # restore positional parameters
 
-echo $BATCH_SIZE
-
 if [[ -z "${OP}" ]] && [[ -z "${URL}" ]]; then
     echo "URL is required, for example:"
     echo "benchmark.sh -u https://s3.amazonaws.com/model-server/model_archive_1.0/onnx-resnet50v1.mar"
@@ -150,7 +148,7 @@ if [[ -z "${OP}" ]] || test "${OP}" = "R"; then
     #echo "load_models=benchmark=${URL}" >> /tmp/benchmark/conf/config.properties
     echo 'setting content type'
     if [[ ! -z "${INPUT}" ]] && [[ -f "${BASEDIR}/${INPUT}" ]]; then
-        CONTENT_TYPE="application/json"
+        CONTENT_TYPE="application/jpg"
         cp -rf ${BASEDIR}/${INPUT} /tmp/benchmark/input
     else
         CONTENT_TYPE="application/jpg"
