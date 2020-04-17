@@ -232,9 +232,10 @@ echo "ab Execution completed"
 
 echo "Grabing performance numbers"
 
-line50=$((${REQUESTS} / 2))
-line90=$((${REQUESTS} * 9 / 10))
-line99=$((${REQUESTS} * 99 / 100))
+BATCHED_REQUESTS=${${REQUESTS}/${BATCH_SIZE}}
+line50=$((${BATCHED_REQUESTS} / 2))
+line90=$((${BATCHED_REQUESTS} * 9 / 10))
+line99=$((${BATCHED_REQUESTS} * 99 / 100))
 
 if [[ -z "${OP}" ]] || test "${OP}" = "R"; then
     grep "PredictionTime" ${metric_log} | cut -c55- | cut -d"|" -f1 | sort -g > /tmp/benchmark/predict.txt
