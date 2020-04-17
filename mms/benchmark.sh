@@ -15,7 +15,7 @@ do
         shift
         ;;
 	-g|--gpu)
-        GPU=""
+        GPU=gpu
         shift
         ;;
         -d|--image)
