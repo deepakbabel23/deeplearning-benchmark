@@ -15,8 +15,7 @@ do
         shift
         ;;
 	-g|--gpu)
-        GPU=gpu
-        shift
+        GPU=""
         shift
         ;;
         -d|--image)
@@ -168,8 +167,7 @@ set -e
 docker run ${DOCKER_RUNTIME} --name ts -p 8080:8080 -p 8081:8081 $ENABLE_GPU\
     -v /tmp/benchmark/conf:/opt/ml/conf \
     -v /tmp/benchmark/logs:/home/model-server/logs \
-    -v /home/ubuntu/model_store/:/home/model-server/model-store \
-    -u root -itd ${IMAGE} torchserve --start \
+    -u root -itd ${IMAGE} torchserve --start --ncs\
     --ts-config /opt/ml/conf/config.properties
 
 echo "Docker initiated"
@@ -239,7 +237,6 @@ echo "Grabing performance numbers"
 line50=$((${REQUESTS} / 2))
 line90=$((${REQUESTS} * 9 / 10))
 line99=$((${REQUESTS} * 99 / 100))
-echo $line99
 
 if [[ -z "${OP}" ]] || test "${OP}" = "R"; then
     grep "PredictionTime" ${metric_log} | cut -c55- | cut -d"|" -f1 | sort -g > /tmp/benchmark/predict.txt
