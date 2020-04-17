@@ -14,6 +14,11 @@ do
         shift
         shift
         ;;
+	-g|--gpu)
+        GPU=gpu
+        shift
+        shift
+        ;;
         -d|--image)
         IMAGE="$2"
         shift
@@ -90,26 +95,35 @@ if [[ -z "${OP}" ]]; then
     exit 1
 fi
 
-if [[ -x "$(command -v nvidia-docker)" ]]; then
-    GPU=true
+#if [[ -x "$(command -v nvidia-docker)" ]]; then
+#    GPU=true
+#else
+#    GPU=false
+#fi
+
+if [[ -z "${GPU}" ]]; then
+   ENABLE_GPU=""
+   HW_TYPE=cpu
 else
-    GPU=false
+   ENABLE_GPU="--gpus 4"
+   HW_TYPE=gpu
 fi
 
-if [[ "${GPU}" == "true" ]]; then
-    DOCKER_RUNTIME="--runtime=nvidia"
-    if [[ -z "${IMAGE}" ]]; then
-        IMAGE=awsdeeplearningteam/multi-model-server:nightly-mxnet-gpu
-        docker pull "${IMAGE}"
-    fi
-    HW_TYPE=gpu
-else
-    if [[ -z "${IMAGE}" ]]; then
-        IMAGE=awsdeeplearningteam/multi-model-server:nightly-mxnet-cpu
-        docker pull "${IMAGE}"
-    fi
-    HW_TYPE=cpu
-fi
+#if [[ "${GPU}" == "true" ]]; then
+#    DOCKER_RUNTIME="--runtime=nvidia"
+#    if [[ -z "${IMAGE}" ]]; then
+#        IMAGE=awsdeeplearningteam/multi-model-server:nightly-mxnet-gpu
+#        docker pull "${IMAGE}"
+#    fi
+#    #HW_TYPE=gpu
+#    #ENABLE_GPU="--gpus 4"
+#else
+#    if [[ -z "${IMAGE}" ]]; then
+#        IMAGE=awsdeeplearningteam/multi-model-server:nightly-mxnet-cpu
+#        docker pull "${IMAGE}"
+#    fi
+    #HW_TYPE=cpu
+#fi
 
 if [[ -z "${CONCURRENCY}" ]]; then
     CONCURRENCY=100
@@ -151,7 +165,7 @@ echo "starting docker..."
 set +e
 docker rm -f ts
 set -e
-docker run ${DOCKER_RUNTIME} --name ts -p 8080:8080 -p 8081:8081 \
+docker run ${DOCKER_RUNTIME} --name ts -p 8080:8080 -p 8081:8081 $ENABLE_GPU\
     -v /tmp/benchmark/conf:/opt/ml/conf \
     -v /tmp/benchmark/logs:/home/model-server/logs \
     -v /home/ubuntu/model_store/:/home/model-server/model-store \
@@ -183,7 +197,15 @@ if [[ -z "${OP}" ]]; then
         http://127.0.0.1:8080/predictions/${MODEL} > ${result_file}
 else
     echo "Executing operation ${OP}"
-        
+    
+    if [[ -z "${BATCH_SIZE}" ]]; then
+	    BATCH_SIZE=1
+    fi
+
+    if [[ -z "${BATCH_DELAY}" ]]; then
+	    BATCH_DELAY=100
+    fi
+
     if test "${OP}" = "R"; then	
         RURL="?model_name=${MODEL}&url=${URL}&batch_size=${BATCH_SIZE}&max_batch_delay=${BATCH_DELAY}&initial_workers=${WORKERS}&synchronous=true"
         curl -X POST "http://localhost:8081/models${RURL}"
