@@ -39,6 +39,16 @@ do
         shift
         shift
         ;;
+        --bdelay)
+        BATCH_DELAY="$2"
+        shift
+        shift
+        ;;
+        --bsize)
+        BATCH_SIZE="$2"
+        shift
+        shift
+        ;;
         -s|--s3)
         UPLOAD="$2"
         shift
@@ -123,7 +133,7 @@ if [[ ! -z "${WORKER}" ]]; then
 fi
 
 if [[ -z "${OP}" ]]; then
-    echo "load_models=benchmark=${URL}" >> /tmp/benchmark/conf/config.properties
+    #echo "load_models=benchmark=${URL}" >> /tmp/benchmark/conf/config.properties
     if [[ ! -z "${INPUT}" ]] && [[ -f "${BASEDIR}/${INPUT}" ]]; then
         CONTENT_TYPE="application/json"
         cp -rf ${BASEDIR}/${INPUT} /tmp/benchmark/input
@@ -143,7 +153,7 @@ docker run ${DOCKER_RUNTIME} --name ts -p 8080:8080 -p 8081:8081 \
     -v /tmp/benchmark/conf:/opt/ml/conf \
     -v /tmp/benchmark/logs:/home/model-server/logs \
     -v /home/ubuntu/model_store/:/home/model-server/model-store \
-    -u root -itd ${IMAGE} torchserve --start --models densenet161=densenet161.mar \
+    -u root -itd ${IMAGE} torchserve --start \
     --ts-config /opt/ml/conf/config.properties
 
 echo "Docker initiated"
@@ -166,38 +176,37 @@ metric_log="/tmp/benchmark/logs/model_metrics.log"
 echo "Executing ab"
 
 if [[ -z "${OP}" ]]; then
-    echo 'test'
+    echo 'Executing inference performance test'
     ab -c ${CONCURRENCY} -n ${REQUESTS} -k -p /tmp/benchmark/input -T "${CONTENT_TYPE}" \
-        http://127.0.0.1:8080/predictions/benchmark > ${result_file}
+        http://127.0.0.1:8080/predictions/${MODEL} > ${result_file}
 else
     echo "Executing operation ${OP}"
 
-    model_base="resnet-18"
-    mar_base="resnet-18"
-    for (( cnt=1; cnt<=${BCOUNT}; cnt++ ))
-    do
-	MODEL="${model_base}_${cnt}"
-        MAR="${mar_base}_${cnt}"
+    # model_base="resnet-18"
+    # mar_base="resnet-18"
+    # for (( cnt=1; cnt<=${BCOUNT}; cnt++ ))
+    # do
+	#     MODEL="${model_base}_${cnt}"
+    #     MAR="${mar_base}_${cnt}"
         
-        if test "${OP}" = "R"; then	
-	        echo 'Inside'
-		RURL="?model_name=${MODEL}&url=${MAR}.mar&batch_size=4&max_batch_delay=5000&initial_workers=3&synchronous=true"
-    		ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m POST "http://localhost:8081/models${RURL}" > ${result_file}
-	fi
-	
-	if test "${OP}" = "D"; then
-		ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m DELETE "http://localhost:8081/models/${MODEL}" > ${result_file}
-	fi
+    if test "${OP}" = "R"; then	
+        RURL="?model_name=${MODEL}&url=${MAR}&batch_size=${BATCH_SIZE}&max_batch_delay=${BATCH_DELAY}&initial_workers=${WORKERS}&synchronous=true"
+        ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m POST "http://localhost:8081/models${RURL}" > ${result_file}
+    fi
+    
+    if test "${OP}" = "D"; then
+        ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m DELETE "http://localhost:8081/models/${MODEL}" > ${result_file}
+    fi
 
-	if test "${OP}" = "SF"; then
-        	ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m PUT "http://localhost:8081/models/${MODEL}/${cnt}_0/set-default" > ${result_file}
-        fi
+    if test "${OP}" = "SF"; then
+            ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m PUT "http://localhost:8081/models/${MODEL}/1_0/set-default" > ${result_file}
+    fi
 
-	if test "${OP}" = "U"; then
-        	ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m PUT "http://localhost:8081/models/${MODEL}?min_worker=3&synchronous=true" > ${result_file}
-        fi
+    if test "${OP}" = "U"; then
+            ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m PUT "http://localhost:8081/models/${MODEL}?min_worker=${WORKERS}&synchronous=true" > ${result_file}
+    fi
 
-    done
+    #done
 fi
 
 echo "ab Execution completed"
@@ -231,9 +240,9 @@ echo "" > /tmp/benchmark/report.txt
 echo "======================================" >> /tmp/benchmark/report.txt
 
 if [[ -z "${OP}" ]]; then
-    curl -s http://localhost:8081/models/benchmark >> /tmp/benchmark/report.txt
+    curl -s http://localhost:8081/models/${MODEL} >> /tmp/benchmark/report.txt
     echo "Inference result:" >> /tmp/benchmark/report.txt
-    curl -s -X POST http://127.0.0.1:8080/predictions/benchmark -H "Content-Type: ${CONTENT_TYPE}" \
+    curl -s -X POST http://127.0.0.1:8080/predictions/${MODEL} -H "Content-Type: ${CONTENT_TYPE}" \
         -T /tmp/benchmark/input >> /tmp/benchmark/report.txt
 else
     echo "Benchmark results - Management API - ${OP}"
