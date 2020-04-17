@@ -73,6 +73,7 @@ do
 done
 set -- "${POSITIONAL[@]}" # restore positional parameters
 
+echo $BATCH_SIZE
 
 if [[ -z "${OP}" ]] && [[ -z "${URL}" ]]; then
     echo "URL is required, for example:"
@@ -132,8 +133,9 @@ if [[ ! -z "${WORKER}" ]]; then
     echo "default_workers_per_model=${WORKER}" >> /tmp/benchmark/conf/config.properties
 fi
 
-if [[ -z "${OP}" ]]; then
+if [[ -z "${OP}" ]] || test "${OP}" = "R"; then
     #echo "load_models=benchmark=${URL}" >> /tmp/benchmark/conf/config.properties
+    echo 'setting content type'
     if [[ ! -z "${INPUT}" ]] && [[ -f "${BASEDIR}/${INPUT}" ]]; then
         CONTENT_TYPE="application/json"
         cp -rf ${BASEDIR}/${INPUT} /tmp/benchmark/input
@@ -181,17 +183,16 @@ if [[ -z "${OP}" ]]; then
         http://127.0.0.1:8080/predictions/${MODEL} > ${result_file}
 else
     echo "Executing operation ${OP}"
-
-    # model_base="resnet-18"
-    # mar_base="resnet-18"
-    # for (( cnt=1; cnt<=${BCOUNT}; cnt++ ))
-    # do
-	#     MODEL="${model_base}_${cnt}"
-    #     MAR="${mar_base}_${cnt}"
         
     if test "${OP}" = "R"; then	
-        RURL="?model_name=${MODEL}&url=${MAR}&batch_size=${BATCH_SIZE}&max_batch_delay=${BATCH_DELAY}&initial_workers=${WORKERS}&synchronous=true"
-        ab -s 180 -c ${CONCURRENCY} -n ${REQUESTS} -k -m POST "http://localhost:8081/models${RURL}" > ${result_file}
+        RURL="?model_name=${MODEL}&url=${URL}&batch_size=${BATCH_SIZE}&max_batch_delay=${BATCH_DELAY}&initial_workers=${WORKERS}&synchronous=true"
+        curl -X POST "http://localhost:8081/models${RURL}"
+
+	echo 'Executing inference performance test'
+        ab -c ${CONCURRENCY} -n ${REQUESTS} -k -p /tmp/benchmark/input -T "${CONTENT_TYPE}" \
+        http://127.0.0.1:8080/predictions/${MODEL} > ${result_file}
+
+	OP=""
     fi
     
     if test "${OP}" = "D"; then
@@ -216,8 +217,9 @@ echo "Grabing performance numbers"
 line50=$((${REQUESTS} / 2))
 line90=$((${REQUESTS} * 9 / 10))
 line99=$((${REQUESTS} * 99 / 100))
+echo $line99
 
-if [[ -z "${OP}" ]]; then
+if [[ -z "${OP}" ]] || test "${OP}" = "R"; then
     grep "PredictionTime" ${metric_log} | cut -c55- | cut -d"|" -f1 | sort -g > /tmp/benchmark/predict.txt
     grep "PreprocessTime" ${metric_log} | cut -c55- | cut -d"|" -f1 | sort -g > /tmp/benchmark/preprocess.txt
     grep "InferenceTime" ${metric_log} | cut -c54- | cut -d"|" -f1 | sort -g > /tmp/benchmark/inference.txt
@@ -239,11 +241,12 @@ TS_ERROR_RATE=`echo "scale=2;100 * ${TS_ERROR}/${REQUESTS}" | bc | awk '{printf 
 echo "" > /tmp/benchmark/report.txt
 echo "======================================" >> /tmp/benchmark/report.txt
 
-if [[ -z "${OP}" ]]; then
+if [[ -z "${OP}" ]] || test "${OP}" = "R"; then
     curl -s http://localhost:8081/models/${MODEL} >> /tmp/benchmark/report.txt
     echo "Inference result:" >> /tmp/benchmark/report.txt
     curl -s -X POST http://127.0.0.1:8080/predictions/${MODEL} -H "Content-Type: ${CONTENT_TYPE}" \
         -T /tmp/benchmark/input >> /tmp/benchmark/report.txt
+    curl -X DELETE "http://localhost:8081/models/${MODEL}"
 else
     echo "Benchmark results - Management API - ${OP}"
 fi
@@ -258,7 +261,7 @@ echo "Model: ${MODEL}" >> /tmp/benchmark/report.txt
 echo "Concurrency: ${CONCURRENCY}" >> /tmp/benchmark/report.txt
 echo "Requests: ${REQUESTS}" >> /tmp/benchmark/report.txt
 
-if [[ -z "${OP}" ]]; then
+if [[ -z "${OP}" ]] || test "${OP}" = "R"; then
     echo "Model latency P50: ${MODEL_P50}" >> /tmp/benchmark/report.txt
     echo "Model latency P90: ${MODEL_P90}" >> /tmp/benchmark/report.txt
     echo "Model latency P99: ${MODEL_P99}" >> /tmp/benchmark/report.txt
